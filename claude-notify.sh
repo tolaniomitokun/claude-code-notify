@@ -21,7 +21,11 @@ CWD=$(parse cwd)
 NOTIFICATION_TYPE=$(parse notification_type)
 
 # Extract project name from working directory
+# If running from home dir, show "Home" instead of the username
 PROJECT=$(basename "${CWD:-unknown}")
+if [ "$CWD" = "$HOME" ] || [ -z "$CWD" ]; then
+  PROJECT="Home"
+fi
 
 # Customize message based on notification type
 case "$NOTIFICATION_TYPE" in
