@@ -303,4 +303,4 @@ Some ideas:
 
 ## License
 
-MIT — use it however you want.
+[MIT](LICENSE) — use it however you want.
