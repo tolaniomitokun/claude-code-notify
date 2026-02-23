@@ -4,6 +4,10 @@ Get notified on your Mac and phone when [Claude Code](https://docs.anthropic.com
 
 Stop staring at your terminal waiting. Step away, grab coffee, go for a walk — you'll get a ping the moment Claude needs you.
 
+<p align="center">
+  <img src="assets/telegram-screenshot.png" alt="Telegram notifications from Claude Code bot" width="350">
+</p>
+
 ## What It Does
 
 When Claude Code is working on your project, there are moments where it pauses and waits for you — like when it needs permission to run a command, or when it finishes a task. Normally, you'd have to keep watching the terminal to notice.
