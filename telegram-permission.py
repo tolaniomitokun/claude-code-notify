@@ -9,13 +9,11 @@ https://github.com/tolaniomitokun/claude-code-notify
 
 import json
 import socket
+import subprocess
 import sys
 import os
 import time
 import threading
-import urllib.request
-import urllib.parse
-import urllib.error
 
 SOCKET_PATH = "/tmp/claude-monitor.sock"
 TIMEOUT_SECONDS = 300  # 5 min max wait
@@ -35,6 +33,21 @@ def load_env():
                 os.environ[key.strip()] = value.strip()
 
 
+def telegram_api(bot_token, method, data):
+    """Call Telegram Bot API using curl (avoids Python SSL issues on macOS)."""
+    url = f"https://api.telegram.org/bot{bot_token}/{method}"
+    args = ["curl", "-s", "-X", "POST", url]
+    for key, value in data.items():
+        args.extend(["-d", f"{key}={value}"])
+    try:
+        result = subprocess.run(args, capture_output=True, text=True, timeout=15)
+        if result.returncode == 0:
+            return json.loads(result.stdout)
+    except Exception:
+        pass
+    return None
+
+
 def send_telegram_permission(bot_token, chat_id, session_id, tool_name, display):
     """Send Telegram message with inline Allow/Deny buttons."""
     keyboard = json.dumps({
@@ -52,34 +65,24 @@ def send_telegram_permission(bot_token, chat_id, session_id, tool_name, display)
         f"```\n{display}\n```"
     )
 
-    data = urllib.parse.urlencode({
+    result = telegram_api(bot_token, "sendMessage", {
         "chat_id": chat_id,
         "text": text,
         "parse_mode": "Markdown",
         "reply_markup": keyboard,
-    }).encode()
+    })
 
-    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-    try:
-        req = urllib.request.Request(url, data=data)
-        resp = urllib.request.urlopen(req, timeout=10)
-        result = json.loads(resp.read())
+    if result and result.get("ok"):
         return result.get("result", {}).get("message_id")
-    except Exception:
-        return None
+    return None
 
 
 def answer_callback(bot_token, callback_id, text):
     """Answer a Telegram callback query (removes loading spinner)."""
-    try:
-        data = urllib.parse.urlencode({
-            "callback_query_id": callback_id,
-            "text": text,
-        }).encode()
-        url = f"https://api.telegram.org/bot{bot_token}/answerCallbackQuery"
-        urllib.request.urlopen(urllib.request.Request(url, data=data), timeout=5)
-    except Exception:
-        pass
+    telegram_api(bot_token, "answerCallbackQuery", {
+        "callback_query_id": callback_id,
+        "text": text,
+    })
 
 
 def update_telegram_message(bot_token, chat_id, message_id, decision):
@@ -88,17 +91,11 @@ def update_telegram_message(bot_token, chat_id, message_id, decision):
         text = "🔐 Permission Request\n\nResult: ✅ Allowed"
     else:
         text = "🔐 Permission Request\n\nResult: ❌ Denied"
-    try:
-        data = urllib.parse.urlencode({
-            "chat_id": chat_id,
-            "message_id": message_id,
-            "text": text,
-            "parse_mode": "Markdown",
-        }).encode()
-        url = f"https://api.telegram.org/bot{bot_token}/editMessageText"
-        urllib.request.urlopen(urllib.request.Request(url, data=data), timeout=5)
-    except Exception:
-        pass
+    telegram_api(bot_token, "editMessageText", {
+        "chat_id": chat_id,
+        "message_id": str(message_id),
+        "text": text,
+    })
 
 
 def poll_telegram(bot_token, chat_id, session_id, result_holder, stop_event):
@@ -106,26 +103,25 @@ def poll_telegram(bot_token, chat_id, session_id, result_holder, stop_event):
     last_update_id = 0
 
     # Get current update_id to skip old callbacks
-    try:
-        url = f"https://api.telegram.org/bot{bot_token}/getUpdates?offset=-1&limit=1"
-        resp = urllib.request.urlopen(url, timeout=10)
-        data = json.loads(resp.read())
-        if data.get("result"):
-            last_update_id = data["result"][-1]["update_id"] + 1
-    except Exception:
-        pass
+    result = telegram_api(bot_token, "getUpdates", {
+        "offset": "-1",
+        "limit": "1",
+    })
+    if result and result.get("result"):
+        last_update_id = result["result"][-1]["update_id"] + 1
 
     while not stop_event.is_set():
         try:
-            url = (
-                f"https://api.telegram.org/bot{bot_token}/getUpdates"
-                f"?offset={last_update_id}&timeout=5"
-                f"&allowed_updates=%5B%22callback_query%22%5D"
-            )
-            resp = urllib.request.urlopen(url, timeout=15)
-            data = json.loads(resp.read())
+            result = telegram_api(bot_token, "getUpdates", {
+                "offset": str(last_update_id),
+                "timeout": "5",
+                "allowed_updates": '["callback_query"]',
+            })
 
-            for update in data.get("result", []):
+            if not result or not result.get("result"):
+                continue
+
+            for update in result["result"]:
                 last_update_id = update["update_id"] + 1
                 cb = update.get("callback_query")
                 if not cb:
