@@ -28,7 +28,18 @@ Permission Needed: Claude needs your permission to use Bash
 
 ✅ Claude Code — my-saas-app
 Task Complete: Claude finished working and is ready for your next prompt.
+
+📊 Session Summary — my-saas-app
+⏱ Duration: 23m
+💬 Prompts: 12
+💰 Est. Cost: $1.98
 ```
+
+Plus:
+
+- **Smart notifications** — only pings your phone if you've been idle for 2+ minutes. No spam when you're at the keyboard.
+- **Telegram action buttons** — tap Allow or Deny right from the Telegram notification to grant permissions without walking back to your desk.
+- **Session summaries** — when a session ends, get a recap with duration, prompt count, and estimated API cost.
 
 ## What You'll Need
 
@@ -48,10 +59,11 @@ Open your terminal (search for "Terminal" in Spotlight, or find it in Applicatio
 ```bash
 git clone https://github.com/tolaniomitokun/claude-code-notify.git ~/claude-code-notify
 cd ~/claude-code-notify
-chmod +x claude-notify.sh
+chmod +x claude-notify.sh activity-tracker.sh session-summary.sh
+mkdir -p ~/.claude/notify/sessions
 ```
 
-**What this does:** Downloads the project to your home folder and makes the script executable.
+**What this does:** Downloads the project, makes scripts executable, and creates the data directory for session tracking.
 
 ### Step 2: Set up your notification channels
 
@@ -128,9 +140,15 @@ TELEGRAM_CHAT_ID=
 
 # Your phone number for iMessage (e.g. +1234567890 — leave blank to skip iMessage)
 PHONE_NUMBER=
+
+# Smart notifications: idle threshold in seconds (default 120 = 2 min)
+IDLE_THRESHOLD=120
+
+# Cost estimation per prompt (default $0.165 for Opus)
+COST_PER_PROMPT=0.165
 ```
 
-**Only fill in what you want to use.** Leave a line blank to disable that channel.
+**Only fill in what you want to use.** Leave a line blank to disable that channel. The last two settings are optional — sensible defaults are built in.
 
 > **Security note:** The `.env` file stays on your machine only. It's in `.gitignore` so it will never be uploaded to GitHub, even if you fork or contribute to this project.
 
@@ -143,14 +161,36 @@ Open (or create) the file `~/.claude/settings.json` and add the hooks configurat
 ```json
 {
   "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          { "type": "command", "command": "~/claude-code-notify/activity-tracker.sh" }
+        ]
+      }
+    ],
     "Notification": [
       {
         "matcher": "",
         "hooks": [
+          { "type": "command", "command": "~/claude-code-notify/claude-notify.sh" }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
           {
             "type": "command",
-            "command": "~/claude-code-notify/claude-notify.sh"
+            "command": "python3 ~/claude-code-notify/telegram-permission.py",
+            "timeout": 86400
           }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          { "type": "command", "command": "~/claude-code-notify/session-summary.sh" }
         ]
       }
     ]
@@ -158,7 +198,13 @@ Open (or create) the file `~/.claude/settings.json` and add the hooks configurat
 }
 ```
 
-**Alternatively**, you can type `/hooks` inside a Claude Code session to add it interactively without editing JSON.
+**What each hook does:**
+- **UserPromptSubmit** → tracks your activity (for smart notifications) and counts prompts (for session summaries)
+- **Notification** → sends macOS/Telegram/iMessage alerts when Claude needs you
+- **PermissionRequest** → sends Telegram message with Allow/Deny buttons you can tap from your phone
+- **SessionEnd** → sends a session recap with duration, prompt count, and estimated cost
+
+**Alternatively**, you can type `/hooks` inside a Claude Code session to add hooks interactively.
 
 ### Step 5: Test it
 
@@ -287,12 +333,16 @@ The script parses this JSON, extracts the project name from `cwd`, determines th
 
 ```
 claude-code-notify/
-├── claude-notify.sh    # The hook script (this does all the work)
-├── .env.example        # Template for your personal settings
-├── .env                # Your actual settings (git-ignored, never uploaded)
-├── .gitignore          # Keeps .env and other private files out of git
-├── LICENSE             # MIT license
-└── README.md           # This file
+├── claude-notify.sh        # Notification hook (macOS + Telegram + iMessage)
+├── activity-tracker.sh     # Tracks user activity + session metrics
+├── session-summary.sh      # Sends Telegram recap when session ends
+├── telegram-permission.py  # Telegram Allow/Deny buttons for permissions
+├── .env.example            # Template for your personal settings
+├── .env                    # Your actual settings (git-ignored, never uploaded)
+├── .gitignore              # Keeps .env and other private files out of git
+├── assets/                 # Screenshots
+├── LICENSE                 # MIT license
+└── README.md               # This file
 ```
 
 ## Contributing
@@ -304,6 +354,7 @@ Some ideas:
 - Sound customization
 - Notification filtering by project
 - Linux support (libnotify)
+- Apple Watch integration
 
 ## License
 
