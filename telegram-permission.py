@@ -85,12 +85,14 @@ def answer_callback(bot_token, callback_id, text):
     })
 
 
-def update_telegram_message(bot_token, chat_id, message_id, decision):
-    """Edit the original message to show the decision result."""
+def update_telegram_message(bot_token, chat_id, message_id, decision, source="Telegram"):
+    """Edit the original message to show the decision result and remove buttons."""
     if decision == "allow":
-        text = "🔐 Permission Request\n\nResult: ✅ Allowed"
+        text = f"🔐 Permission Request\n\n✅ Allowed via {source}"
+    elif decision == "deny":
+        text = f"🔐 Permission Request\n\n❌ Denied via {source}"
     else:
-        text = "🔐 Permission Request\n\nResult: ❌ Denied"
+        text = f"🔐 Permission Request\n\nHandled via {source}"
     telegram_api(bot_token, "editMessageText", {
         "chat_id": chat_id,
         "message_id": str(message_id),
@@ -133,18 +135,14 @@ def poll_telegram(bot_token, chat_id, session_id, result_holder, stop_event):
 
                 if cb_data == f"perm_allow_{session_id}":
                     answer_callback(bot_token, cb_id, "Allowed")
-                    update_telegram_message(
-                        bot_token, chat_id, msg.get("message_id"), "allow"
-                    )
                     result_holder["decision"] = "allow"
+                    result_holder["source"] = "Telegram"
                     stop_event.set()
                     return
                 elif cb_data == f"perm_deny_{session_id}":
                     answer_callback(bot_token, cb_id, "Denied")
-                    update_telegram_message(
-                        bot_token, chat_id, msg.get("message_id"), "deny"
-                    )
                     result_holder["decision"] = "deny"
+                    result_holder["source"] = "Telegram"
                     stop_event.set()
                     return
 
@@ -187,6 +185,7 @@ def listen_socket(session_id, tool_name, display, tool_input_str,
                     decision = response.get("decision", "")
                     if decision in ("allow", "deny", "terminal"):
                         result_holder["decision"] = decision
+                        result_holder["source"] = "dashboard"
                         stop_event.set()
                     return
             except socket.timeout:
@@ -279,6 +278,11 @@ def main():
     cleanup(perm_file)
 
     decision = result_holder.get("decision")
+
+    # Always update Telegram message to reflect the decision, regardless of source
+    if bot_token and chat_id and msg_id and decision in ("allow", "deny", "terminal"):
+        source = result_holder.get("source", "terminal/dashboard")
+        update_telegram_message(bot_token, chat_id, msg_id, decision, source)
 
     if decision == "allow":
         output = {
